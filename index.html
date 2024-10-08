@@ -25,10 +25,12 @@
   <video id="videoElement" autoplay playsinline></video>
   <canvas id="canvasElement"></canvas>
 
-  <!-- Load TensorFlow.js and the HandPose model -->
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/handpose"></script>
+  <!-- Load TensorFlow.js and the Hand Pose Detection model -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core@3.20.0"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter@3.20.0"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl@3.20.0"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/hand-pose-detection@0.4.0"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4/hands.js"></script>
 
   <script>
     // Get references to the video and canvas elements
@@ -36,7 +38,7 @@
     const canvas = document.getElementById('canvasElement');
     const ctx = canvas.getContext('2d');
 
-    let handposeModel;
+    let detector;
     let currentDotIndex = 0;
 
     // Define the letter 'A' as a series of dots (relative positions)
@@ -62,9 +64,15 @@
       });
     }
 
-    // Load the HandPose model
-    async function loadHandposeModel() {
-      handposeModel = await handpose.load();
+    // Load the Hand Pose Detection model
+    async function loadHandPoseModel() {
+      const model = handPoseDetection.SupportedModels.MediaPipeHands;
+      const detectorConfig = {
+        runtime: 'tfjs',
+        modelType: 'lite',
+        maxHands: 1,
+      };
+      detector = await handPoseDetection.createDetector(model, detectorConfig);
     }
 
     // Resize canvas to match video dimensions
@@ -97,36 +105,38 @@
 
     // Main loop to detect hands and update the UI
     async function mainLoop() {
-      const predictions = await handposeModel.estimateHands(video, true);
+      const hands = await detector.estimateHands(video);
 
       drawDots();
 
-      if (predictions.length > 0) {
-        const landmarks = predictions[0].landmarks;
-        const indexFingerTip = landmarks[8]; // Index finger tip
+      if (hands.length > 0) {
+        const keypoints = hands[0].keypoints3D || hands[0].keypoints;
+        const indexFingerTip = keypoints.find(point => point.name === 'index_finger_tip');
 
-        // Flip the x-coordinate since the video is mirrored
-        const fingerX = canvas.width - indexFingerTip[0];
-        const fingerY = indexFingerTip[1];
+        if (indexFingerTip) {
+          // Flip the x-coordinate since the video is mirrored
+          const fingerX = canvas.width - indexFingerTip.x * canvas.width / video.videoWidth;
+          const fingerY = indexFingerTip.y * canvas.height / video.videoHeight;
 
-        // Draw the fingertip position
-        ctx.fillStyle = 'red';
-        ctx.beginPath();
-        ctx.arc(fingerX, fingerY, 10, 0, Math.PI * 2);
-        ctx.fill();
+          // Draw the fingertip position
+          ctx.fillStyle = 'red';
+          ctx.beginPath();
+          ctx.arc(fingerX, fingerY, 10, 0, Math.PI * 2);
+          ctx.fill();
 
-        // Check if the fingertip is close to the current dot
-        const targetDot = letterDots[currentDotIndex];
-        const targetX = targetDot.x * canvas.width;
-        const targetY = targetDot.y * canvas.height;
+          // Check if the fingertip is close to the current dot
+          const targetDot = letterDots[currentDotIndex];
+          const targetX = targetDot.x * canvas.width;
+          const targetY = targetDot.y * canvas.height;
 
-        const distance = Math.hypot(fingerX - targetX, fingerY - targetY);
+          const distance = Math.hypot(fingerX - targetX, fingerY - targetY);
 
-        if (distance < 40) {
-          currentDotIndex++;
-          if (currentDotIndex >= letterDots.length) {
-            alert('Well done! You have traced the letter.');
-            currentDotIndex = 0; // Reset for the next round
+          if (distance < 40) {
+            currentDotIndex++;
+            if (currentDotIndex >= letterDots.length) {
+              alert('Well done! You have traced the letter.');
+              currentDotIndex = 0; // Reset for the next round
+            }
           }
         }
       }
@@ -137,7 +147,7 @@
     // Initialize the application
     async function init() {
       await setupCamera();
-      await loadHandposeModel();
+      await loadHandPoseModel();
       video.play();
 
       // Resize canvas once video dimensions are available
