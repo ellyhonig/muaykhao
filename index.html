@@ -4,9 +4,11 @@
   <meta charset="UTF-8">
   <title>Air Letter Tracing</title>
   <style>
-    body {
+    body, html {
       margin: 0;
       overflow: hidden;
+      width: 100%;
+      height: 100%;
     }
     #videoElement, #canvasElement {
       position: absolute;
@@ -17,7 +19,7 @@
       object-fit: cover;
     }
     #videoElement {
-      transform: scaleX(-1);
+      transform: scaleX(-1); /* Mirror the video for natural interaction */
     }
   </style>
 </head>
@@ -26,140 +28,168 @@
   <canvas id="canvasElement"></canvas>
 
   <!-- Load TensorFlow.js and the Hand Pose Detection model -->
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core@3.20.0"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter@3.20.0"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl@3.20.0"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/hand-pose-detection@0.4.0"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.2.0"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/hand-pose-detection@2.0.0"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4/hands.js"></script>
 
   <script>
-    // Get references to the video and canvas elements
-    const video = document.getElementById('videoElement');
-    const canvas = document.getElementById('canvasElement');
-    const ctx = canvas.getContext('2d');
+    (async () => {
+      // References to video and canvas elements
+      const video = document.getElementById('videoElement');
+      const canvas = document.getElementById('canvasElement');
+      const ctx = canvas.getContext('2d');
 
-    let detector;
-    let currentDotIndex = 0;
+      let detector;
+      let currentDotIndex = 0;
 
-    // Define the letter 'A' as a series of dots (relative positions)
-    const letterDots = [
-      { x: 0.5, y: 0.2 },
-      { x: 0.3, y: 0.8 },
-      { x: 0.7, y: 0.8 },
-      { x: 0.4, y: 0.5 },
-      { x: 0.6, y: 0.5 },
-    ];
+      // Define the letter as a series of relative coordinates
+      const letterDots = [
+        { x: 0.5, y: 0.2 },
+        { x: 0.3, y: 0.8 },
+        { x: 0.7, y: 0.8 },
+        { x: 0.4, y: 0.5 },
+        { x: 0.6, y: 0.5 },
+      ];
 
-    // Access the user's webcam
-    async function setupCamera() {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'user' },
-        audio: false,
-      });
-      video.srcObject = stream;
-      return new Promise((resolve) => {
-        video.onloadedmetadata = () => {
-          resolve();
-        };
-      });
-    }
-
-    // Load the Hand Pose Detection model
-    async function loadHandPoseModel() {
-      const model = handPoseDetection.SupportedModels.MediaPipeHands;
-      const detectorConfig = {
-        runtime: 'tfjs',
-        modelType: 'lite',
-        maxHands: 1,
-      };
-      detector = await handPoseDetection.createDetector(model, detectorConfig);
-    }
-
-    // Resize canvas to match video dimensions
-    function resizeCanvas() {
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-    }
-
-    // Draw the dots on the canvas
-    function drawDots() {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-      letterDots.forEach((dot, index) => {
-        // Convert relative positions to absolute positions
-        const dotX = dot.x * canvas.width;
-        const dotY = dot.y * canvas.height;
-
-        if (index < currentDotIndex) {
-          ctx.fillStyle = 'white';
-        } else if (index === currentDotIndex) {
-          ctx.fillStyle = 'green';
-        } else {
-          ctx.fillStyle = 'rgba(128, 128, 128, 0.5)';
-        }
-        ctx.beginPath();
-        ctx.arc(dotX, dotY, 20, 0, Math.PI * 2);
-        ctx.fill();
-      });
-    }
-
-    // Main loop to detect hands and update the UI
-    async function mainLoop() {
-      const hands = await detector.estimateHands(video);
-
-      drawDots();
-
-      if (hands.length > 0) {
-        const keypoints = hands[0].keypoints3D || hands[0].keypoints;
-        const indexFingerTip = keypoints.find(point => point.name === 'index_finger_tip');
-
-        if (indexFingerTip) {
-          // Flip the x-coordinate since the video is mirrored
-          const fingerX = canvas.width - indexFingerTip.x * canvas.width / video.videoWidth;
-          const fingerY = indexFingerTip.y * canvas.height / video.videoHeight;
-
-          // Draw the fingertip position
-          ctx.fillStyle = 'red';
-          ctx.beginPath();
-          ctx.arc(fingerX, fingerY, 10, 0, Math.PI * 2);
-          ctx.fill();
-
-          // Check if the fingertip is close to the current dot
-          const targetDot = letterDots[currentDotIndex];
-          const targetX = targetDot.x * canvas.width;
-          const targetY = targetDot.y * canvas.height;
-
-          const distance = Math.hypot(fingerX - targetX, fingerY - targetY);
-
-          if (distance < 40) {
-            currentDotIndex++;
-            if (currentDotIndex >= letterDots.length) {
-              alert('Well done! You have traced the letter.');
-              currentDotIndex = 0; // Reset for the next round
-            }
-          }
+      // Function to set up the camera
+      async function setupCamera() {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: 'user' },
+            audio: false,
+          });
+          video.srcObject = stream;
+          await new Promise((resolve) => {
+            video.onloadedmetadata = () => {
+              resolve();
+            };
+          });
+        } catch (error) {
+          alert('Error accessing camera: ' + error.message);
+          console.error('Camera Error:', error);
         }
       }
 
-      requestAnimationFrame(mainLoop);
-    }
+      // Function to load the hand pose model
+      async function loadHandPoseModel() {
+        try {
+          const model = handPoseDetection.SupportedModels.MediaPipeHands;
+          const detectorConfig = {
+            runtime: 'tfjs',
+            modelType: 'lite', // Use 'lite' model for better performance on mobile
+            maxHands: 1,
+          };
+          detector = await handPoseDetection.createDetector(model, detectorConfig);
+        } catch (error) {
+          alert('Error loading hand pose model: ' + error.message);
+          console.error('Model Loading Error:', error);
+        }
+      }
 
-    // Initialize the application
-    async function init() {
-      await setupCamera();
-      await loadHandPoseModel();
-      video.play();
+      // Function to resize canvas to match video dimensions
+      function resizeCanvas() {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+      }
 
-      // Resize canvas once video dimensions are available
-      resizeCanvas();
+      // Function to draw the letter dots
+      function drawDots() {
+        letterDots.forEach((dot, index) => {
+          const dotX = dot.x * canvas.width;
+          const dotY = dot.y * canvas.height;
 
-      // Redraw canvas when the window is resized
-      window.addEventListener('resize', resizeCanvas);
+          if (index < currentDotIndex) {
+            ctx.fillStyle = 'white';
+          } else if (index === currentDotIndex) {
+            ctx.fillStyle = 'green';
+          } else {
+            ctx.fillStyle = 'rgba(128, 128, 128, 0.5)';
+          }
+          ctx.beginPath();
+          ctx.arc(dotX, dotY, 20, 0, Math.PI * 2);
+          ctx.fill();
+        });
+      }
 
-      mainLoop();
-    }
+      // Function to draw hand landmarks
+      function drawHand(hand) {
+        if (hand.keypoints && hand.keypoints.length > 0) {
+          ctx.fillStyle = 'red';
+          hand.keypoints.forEach((point) => {
+            const x = canvas.width - (point.x * canvas.width / video.videoWidth);
+            const y = point.y * canvas.height / video.videoHeight;
+            ctx.beginPath();
+            ctx.arc(x, y, 5, 0, 2 * Math.PI);
+            ctx.fill();
+          });
+        }
+      }
 
-    init();
+      // Main function to process video frames
+      async function mainLoop() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        drawDots();
+
+        try {
+          const hands = await detector.estimateHands(video);
+
+          if (hands.length > 0) {
+            const hand = hands[0];
+            drawHand(hand);
+
+            const indexFingerTip = hand.keypoints.find(p => p.name === 'index_finger_tip');
+            if (indexFingerTip) {
+              const fingerX = canvas.width - (indexFingerTip.x * canvas.width / video.videoWidth);
+              const fingerY = indexFingerTip.y * canvas.height / video.videoHeight;
+
+              // Draw the fingertip marker
+              ctx.fillStyle = 'blue';
+              ctx.beginPath();
+              ctx.arc(fingerX, fingerY, 10, 0, 2 * Math.PI);
+              ctx.fill();
+
+              // Check for collision with current dot
+              const targetDot = letterDots[currentDotIndex];
+              const targetX = targetDot.x * canvas.width;
+              const targetY = targetDot.y * canvas.height;
+
+              const distance = Math.hypot(fingerX - targetX, fingerY - targetY);
+              if (distance < 40) {
+                currentDotIndex++;
+                if (currentDotIndex >= letterDots.length) {
+                  alert('Well done! You have traced the letter.');
+                  currentDotIndex = 0; // Reset
+                }
+              }
+            }
+          }
+        } catch (error) {
+          console.error('Hand Detection Error:', error);
+        }
+
+        requestAnimationFrame(mainLoop);
+      }
+
+      // Initialize the application
+      async function init() {
+        await setupCamera();
+        await loadHandPoseModel();
+
+        video.play();
+
+        // Adjust canvas size when video metadata is loaded
+        video.addEventListener('loadeddata', () => {
+          resizeCanvas();
+        });
+
+        // Adjust canvas size on window resize
+        window.addEventListener('resize', resizeCanvas);
+
+        mainLoop();
+      }
+
+      init();
+    })();
   </script>
 </body>
 </html>
